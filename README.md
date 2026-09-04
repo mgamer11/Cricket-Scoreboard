@@ -35,10 +35,4 @@ A live, mobile-first cricket scoreboard built as a single-page web app. Installs
 1. Open the live site link above
 2. Tap the install prompt, or **⋮ menu → Install app**
 
-## Making changes
-
-- **Design/colors/spacing** → edit `style.css` only
-- **New scoring rules or features** → edit the `<script>` section inside `index.html`
-- **Icon** → replace `icon-180.png`, `icon-192.png`, and `icon-512.png` with new images of the same size and same filenames
-
 All files need to live in the same folder in the repo for the relative links between them to work.
