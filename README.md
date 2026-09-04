@@ -1,9 +1,6 @@
 # 🏏 Cricket Scoreboard
 
 A live, mobile-first cricket scoreboard built as a single-page web app. Installs to your phone's home screen like a native app — no App Store needed.
-
-**Live site:** `https://mgamer11.github.io/Cricket-Scoreboard/` ← update this once you know your URL
-
 ## Features
 
 - **Run pad** — 0, 1, 2, 3, 4, 6, with 4s and 6s visually called out
