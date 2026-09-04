@@ -111,6 +111,9 @@
   <button class="wide-btn new-innings-btn" id="newInningsBtn">New Innings</button>
 
   <footer>Tap Share → Add to Home Screen for app-style access</footer>
+
+  <input type="checkbox" id="hapticSwitch" tabindex="-1" aria-hidden="true"
+    style="position:fixed; top:-100px; left:-100px; width:1px; height:1px; opacity:0; pointer-events:none;">
 </div>
 
 <script>
@@ -442,15 +445,36 @@
     }
   }
 
+  // --- Haptics ---------------------------------------------------------
+  // iOS Safari has no official Vibration API. This exploits a real iOS 18+
+  // WebKit behavior: toggling a native <input type="checkbox"> styled as a
+  // switch fires the Taptic Engine. It only works from a genuine, trusted
+  // user tap (which every button here already is), so we trigger it inside
+  // each click handler. Unofficial + unsupported by Apple — if a future
+  // iOS update changes this, it just silently does nothing (safe no-op),
+  // and on Android/desktop it's harmless either way.
+  const hapticSwitch = el('hapticSwitch');
+  function haptic(strong){
+    if(!hapticSwitch) return;
+    try{
+      hapticSwitch.click();
+      if(strong){ setTimeout(()=>{ try{ hapticSwitch.click(); }catch(e){} }, 60); }
+    }catch(e){ /* no-op */ }
+  }
+
   // Event wiring
   runButtons.forEach(btn=>{
-    btn.addEventListener('click', ()=> addRun(parseInt(btn.dataset.run,10)));
+    btn.addEventListener('click', ()=>{
+      const n = parseInt(btn.dataset.run,10);
+      haptic(n === 4 || n === 6);
+      addRun(n);
+    });
   });
-  wicketBtn.addEventListener('click', addWicket);
-  runoutBtn.addEventListener('click', toggleRunOut);
-  noballBtn.addEventListener('click', toggleNoBall);
-  undoBtn.addEventListener('click', undo);
-  el('newInningsBtn').addEventListener('click', startNewInnings);
+  wicketBtn.addEventListener('click', ()=>{ haptic(true); addWicket(); });
+  runoutBtn.addEventListener('click', ()=>{ haptic(false); toggleRunOut(); });
+  noballBtn.addEventListener('click', ()=>{ haptic(false); toggleNoBall(); });
+  undoBtn.addEventListener('click', ()=>{ haptic(false); undo(); });
+  el('newInningsBtn').addEventListener('click', ()=>{ haptic(true); startNewInnings(); });
 
   settingsBtn.addEventListener('click', ()=>{
     teamsPanel.classList.toggle('show');
