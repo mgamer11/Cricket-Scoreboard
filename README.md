@@ -1,12 +1,17 @@
 # 🏏 Cricket Scoreboard
 
 A live, mobile-first cricket scoreboard built as a single-page web app. Installs to your phone's home screen like a native app — no App Store needed.
+
+**Live site:** `https://YOUR-USERNAME.github.io/YOUR-REPO-NAME/` ← update this once you know your URL
+
 ## Features
 
 - **Run pad** — 0, 1, 2, 3, 4, 6, with 4s and 6s visually called out
 - **Wicket** — instant tap for a standard dismissal (bowled, caught, LBW, stumped)
 - **Run Out** — arm it, then tap the number of runs the batters were attempting; automatically credits one fewer than what you tap (matches real cricket scoring rules)
 - **No Ball** — arm it, then tap the runs scored; adds to the total without counting as a legal ball
+- **Wide** — one tap; logged in the ball-by-ball log and never counts as a legal ball
+- **+1 run on Wide / No Ball toggle** — switch at the top of the page. When on, every Wide adds 1 run and every No Ball adds 1 run on top of whatever is scored off the bat (the extra run is never credited to the batter). When off, neither adds a penalty run
 - **Smart Undo** — reverses the *exact* last action (runs, wicket, no-ball, or run-out), including rewinding across an over boundary
 - **Overs & wickets tracking** — auto-advances the over every 6 legal balls, locks scoring at 10 wickets
 - **Ball-by-ball ledger** — scrolling log of everything bowled this innings
@@ -34,5 +39,11 @@ A live, mobile-first cricket scoreboard built as a single-page web app. Installs
 **Android (Chrome):**
 1. Open the live site link above
 2. Tap the install prompt, or **⋮ menu → Install app**
+
+## Making changes
+
+- **Design/colors/spacing** → edit `style.css` only
+- **New scoring rules or features** → edit the `<script>` section inside `index.html`
+- **Icon** → replace `icon-180.png`, `icon-192.png`, and `icon-512.png` with new images of the same size and same filenames
 
 All files need to live in the same folder in the repo for the relative links between them to work.

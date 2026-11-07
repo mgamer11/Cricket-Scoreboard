@@ -25,6 +25,11 @@
     <button class="icon-btn" id="settingsBtn">⚙ Teams</button>
   </header>
 
+  <button class="extra-toggle" id="extraToggle" role="switch" aria-checked="false">
+    <span class="extra-label">+1 run on Wide / No Ball</span>
+    <span class="switch"><span class="knob"></span></span>
+  </button>
+
   <div class="panel" id="teamsPanel">
     <div class="team-card">
       <input class="team-name-input" id="teamNameA" maxlength="20" value="Team A">
@@ -71,16 +76,11 @@
     </div>
   </div>
 
-  <div class="ledger-wrap" id="ledgerWrap">
-    <div class="ledger-empty" id="ledgerEmpty">Ball-by-ball log will appear here</div>
-  </div>
+  <div class="ledger-wrap" id="ledgerWrap"></div>
 
-  <div class="striker-wrap">
-    <div class="striker-label">On Strike — tap to select</div>
+  <div class="striker-wrap" id="strikerWrap">
     <div class="striker-row" id="strikerRow"></div>
   </div>
-
-  <div class="armed-banner" id="armedBanner"></div>
 
   <div class="pad">
     <button class="run-btn" data-run="0">0</button>
@@ -95,11 +95,18 @@
     <button class="wide-btn wicket-btn" id="wicketBtn">Wicket</button>
     <button class="wide-btn runout-btn" id="runoutBtn">
       <span>Run Out</span>
-      <span class="nb-state" id="roState">tap to arm</span>
+      <span class="nb-state" id="roState"></span>
+    </button>
+  </div>
+
+  <div class="btn-row">
+    <button class="wide-btn wideball-btn" id="wideBtn">
+      <span>Wide</span>
+      <span class="nb-state" id="wdState"></span>
     </button>
     <button class="wide-btn noball-btn" id="noballBtn">
       <span>No Ball</span>
-      <span class="nb-state" id="nbState">tap to arm</span>
+      <span class="nb-state" id="nbState"></span>
     </button>
   </div>
 
@@ -109,8 +116,6 @@
   </button>
 
   <button class="wide-btn new-innings-btn" id="newInningsBtn">New Innings</button>
-
-  <footer>Tap Share → Add to Home Screen for app-style access</footer>
 
   <input type="checkbox" id="hapticSwitch" tabindex="-1" aria-hidden="true"
     style="position:fixed; top:-100px; left:-100px; width:1px; height:1px; opacity:0; pointer-events:none;">
@@ -133,6 +138,7 @@
     history: [],
     noBallArmed: false,
     runOutArmed: false,
+    extraRunOn: false,
     target: null,
     prevSummary: null
   };
@@ -140,11 +146,13 @@
   const el = id => document.getElementById(id);
   const runsEl = el('runsEl'), wicketsEl = el('wicketsEl'), oversEl = el('oversEl');
   const alloutEl = el('alloutEl');
-  const ledgerWrap = el('ledgerWrap'), ledgerEmpty = el('ledgerEmpty');
+  const ledgerWrap = el('ledgerWrap');
   const undoBtn = el('undoBtn'), undoSub = el('undoSub');
   const wicketBtn = el('wicketBtn'), noballBtn = el('noballBtn'), nbState = el('nbState');
   const runoutBtn = el('runoutBtn'), roState = el('roState');
-  const armedBanner = el('armedBanner');
+  const wideBtn = el('wideBtn'), wdState = el('wdState');
+  const extraToggle = el('extraToggle');
+  const strikerWrap = el('strikerWrap');
   const runButtons = document.querySelectorAll('.run-btn');
   const battingLabel = el('battingLabel');
   const targetRow = el('targetRow'), targetNeed = el('targetNeed'), targetSub = el('targetSub');
@@ -165,6 +173,7 @@
 
   function ballLabel(){ return state.overs + '.' + (state.ball + 1); }
   function nbLabel(){ return state.overs + '.' + (state.ball + 1) + 'nb'; }
+  function wdLabel(){ return state.overs + '.' + (state.ball + 1) + 'wd'; }
   function advanceBall(){ state.ball += 1; if(state.ball === 6){ state.ball = 0; state.overs += 1; } }
   function reverseBall(){ if(state.ball === 0){ state.overs -= 1; state.ball = 5; } else { state.ball -= 1; } }
 
@@ -180,7 +189,12 @@
       return { text: (dp ? dp.name.toUpperCase() + ' ' : '') + 'RUN OUT +' + entry.value, cls:'wicket' };
     }
     if(entry.type === 'noball'){
-      return { text: name + 'NO BALL +' + entry.value, cls:'noball' };
+      const extra = entry.extra || 0, bat = entry.batValue || 0;
+      const txt = extra ? 'NO BALL +' + extra + (bat > 0 ? ' +' + bat : '') : 'NO BALL +' + entry.value;
+      return { text: name + txt, cls:'noball' };
+    }
+    if(entry.type === 'wide'){
+      return { text: 'WIDE' + (entry.value ? ' +' + entry.value : ''), cls:'wide' };
     }
     if(entry.value === 6) return { text: name + 'SIX +6', cls:'six' };
     if(entry.value === 4) return { text: name + 'FOUR +4', cls:'four' };
@@ -204,8 +218,9 @@
       return;
     }
     if(state.noBallArmed){
-      state.history.push({ type:'noball', value: n, batValue: n, playerId: striker, label: nbLabel() });
-      state.runs += n;
+      const extra = state.extraRunOn ? 1 : 0;
+      state.history.push({ type:'noball', value: n + extra, batValue: n, extra: extra, playerId: striker, label: nbLabel() });
+      state.runs += n + extra;
       if(striker){ const p = findPlayer(striker); if(p) p.runs += n; }
       state.noBallArmed = false;
       render(true);
@@ -231,6 +246,22 @@
     render(true);
   }
 
+  function addWide(){
+    if(state.wickets >= 10) return;
+    state.noBallArmed = false;
+    state.runOutArmed = false;
+    const extra = state.extraRunOn ? 1 : 0;
+    // A wide is not a legal delivery: runs go to the team only, and the ball count does not move.
+    state.history.push({ type:'wide', value: extra, batValue: 0, playerId: null, label: wdLabel() });
+    state.runs += extra;
+    render(true);
+  }
+
+  function toggleExtraRun(){
+    state.extraRunOn = !state.extraRunOn;
+    render(false);
+  }
+
   function toggleNoBall(){
     if(state.wickets >= 10) return;
     state.noBallArmed = !state.noBallArmed;
@@ -252,7 +283,7 @@
     }
     const last = state.history.pop();
     if(!last) return;
-    if(last.type !== 'noball'){ reverseBall(); }
+    if(last.type !== 'noball' && last.type !== 'wide'){ reverseBall(); }
     state.runs -= last.value;
     if(last.playerId){ const p = findPlayer(last.playerId); if(p) p.runs -= (last.batValue != null ? last.batValue : last.value); }
     if(last.type === 'wicket' || last.type === 'runout'){
@@ -284,7 +315,7 @@
       state.prevSummary = null;
     }
     state.runs = 0; state.wickets = 0; state.overs = 0; state.ball = 0;
-    state.history = []; state.noBallArmed = false; state.strikerId = null;
+    state.history = []; state.noBallArmed = false; state.runOutArmed = false; state.strikerId = null;
     render(false);
   }
 
@@ -350,8 +381,9 @@
 
   function renderStrikerRow(){
     const team = state.teams[state.battingTeamIndex];
+    strikerWrap.style.display = team.players.length === 0 ? 'none' : '';
     if(team.players.length === 0){
-      strikerRow.innerHTML = '<span class="striker-empty">Add players in ⚙ Teams to track individual scores</span>';
+      strikerRow.innerHTML = '';
       return;
     }
     strikerRow.innerHTML = team.players.map(p => `
@@ -380,20 +412,19 @@
     runoutBtn.disabled = allOut;
     runoutBtn.style.opacity = allOut ? '0.35' : '1';
     runoutBtn.style.pointerEvents = allOut ? 'none' : 'auto';
+    wideBtn.disabled = allOut;
+    wideBtn.style.opacity = allOut ? '0.35' : '1';
+    wideBtn.style.pointerEvents = allOut ? 'none' : 'auto';
     runButtons.forEach(b=>{ b.disabled = allOut; });
 
-    noballBtn.classList.toggle('armed', state.noBallArmed);
-    nbState.textContent = state.noBallArmed ? 'armed ⚡' : 'tap to arm';
-    runoutBtn.classList.toggle('armed', state.runOutArmed);
-    roState.textContent = state.runOutArmed ? 'armed ⚡' : 'tap to arm';
+    extraToggle.classList.toggle('on', state.extraRunOn);
+    extraToggle.setAttribute('aria-checked', state.extraRunOn ? 'true' : 'false');
 
-    const anyArmed = state.noBallArmed || state.runOutArmed;
-    armedBanner.classList.toggle('show', anyArmed);
-    if(state.noBallArmed){
-      armedBanner.textContent = '⚡ NO BALL ARMED — tap the runs scored, it will not count as a ball';
-    } else if(state.runOutArmed){
-      armedBanner.textContent = '⚡ RUN OUT ARMED — tap the runs they were attempting, the last one will not count';
-    }
+    noballBtn.classList.toggle('armed', state.noBallArmed);
+    nbState.textContent = state.noBallArmed ? 'armed ⚡' : (state.extraRunOn ? '+1' : '');
+    runoutBtn.classList.toggle('armed', state.runOutArmed);
+    roState.textContent = state.runOutArmed ? 'armed ⚡' : '';
+    wdState.textContent = state.extraRunOn ? '+1' : '';
 
     if(state.target != null){
       targetRow.classList.add('show');
@@ -427,14 +458,11 @@
       undoSub.textContent = 'Nothing to undo';
     }
 
-    ledgerEmpty.style.display = has ? 'none' : 'block';
-    const rows = state.history.slice().reverse().slice(0, 40).map(entry=>{
+    ledgerWrap.innerHTML = state.history.slice().reverse().slice(0, 40).map(entry=>{
       const d = describe(entry);
       return '<div class="ledger-row"><span class="ledger-ball">' + entry.label +
              '</span><span class="ledger-desc ' + d.cls + '">' + d.text + '</span></div>';
     }).join('');
-    ledgerWrap.querySelectorAll('.ledger-row').forEach(r => r.remove());
-    ledgerWrap.insertAdjacentHTML('beforeend', rows);
 
     renderStrikerRow();
     renderTeamsPanel();
@@ -472,6 +500,8 @@
   });
   wicketBtn.addEventListener('click', ()=>{ haptic(true); addWicket(); });
   runoutBtn.addEventListener('click', ()=>{ haptic(false); toggleRunOut(); });
+  wideBtn.addEventListener('click', ()=>{ haptic(false); addWide(); });
+  extraToggle.addEventListener('click', ()=>{ haptic(false); toggleExtraRun(); });
   noballBtn.addEventListener('click', ()=>{ haptic(false); toggleNoBall(); });
   undoBtn.addEventListener('click', ()=>{ haptic(false); undo(); });
   el('newInningsBtn').addEventListener('click', ()=>{ haptic(true); startNewInnings(); });
