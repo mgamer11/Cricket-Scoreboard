@@ -2,7 +2,7 @@
 
 A live, mobile-first cricket scoreboard built as a single-page web app. Installs to your phone's home screen like a native app — no App Store needed.
 
-**Live site:** `https://YOUR-USERNAME.github.io/YOUR-REPO-NAME/` ← update this once you know your URL
+**Live site:** https://mgamer11.github.io/Cricket-Scoreboard/
 
 ## Features
 
