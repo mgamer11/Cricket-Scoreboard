@@ -162,6 +162,10 @@
   const playerListA = el('playerListA'), playerListB = el('playerListB');
   const battingBtnA = el('battingBtnA'), battingBtnB = el('battingBtnB'), battingHint = el('battingHint');
 
+  function esc(s){
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
   function findPlayer(id){
     if(id == null) return null;
     for(const t of state.teams){
@@ -324,7 +328,7 @@
     state.teams.forEach(t => t.players.forEach(p => { p.runs = 0; p.out = false; }));
     state.battingTeamIndex = 0; state.strikerId = null;
     state.runs = 0; state.wickets = 0; state.overs = 0; state.ball = 0;
-    state.history = []; state.noBallArmed = false; state.target = null; state.prevSummary = null;
+    state.history = []; state.noBallArmed = false; state.runOutArmed = false; state.target = null; state.prevSummary = null;
     render(false);
   }
 
@@ -365,7 +369,7 @@
     [ [playerListA, 0], [playerListB, 1] ].forEach(([container, idx]) => {
       container.innerHTML = state.teams[idx].players.map(p => `
         <span class="player-tag">
-          ${p.out ? '<s>' + p.name + '</s>' : p.name}
+          ${p.out ? '<s>' + esc(p.name) + '</s>' : esc(p.name)}
           <span class="runs">${p.runs}</span>
           <button class="rm" data-action="remove-player" data-team="${idx}" data-id="${p.id}">×</button>
         </span>
@@ -389,7 +393,7 @@
     strikerRow.innerHTML = team.players.map(p => `
       <button class="striker-chip ${p.id === state.strikerId ? 'selected' : ''} ${p.out ? 'out' : ''}"
         data-action="select-striker" data-id="${p.id}" ${p.out ? 'disabled' : ''}>
-        ${p.name} <span class="r">${p.runs}${p.out ? ' · OUT' : ''}</span>
+        ${esc(p.name)} <span class="r">${p.runs}${p.out ? ' · OUT' : ''}</span>
       </button>
     `).join('');
   }
@@ -461,7 +465,7 @@
     ledgerWrap.innerHTML = state.history.slice().reverse().slice(0, 40).map(entry=>{
       const d = describe(entry);
       return '<div class="ledger-row"><span class="ledger-ball">' + entry.label +
-             '</span><span class="ledger-desc ' + d.cls + '">' + d.text + '</span></div>';
+             '</span><span class="ledger-desc ' + d.cls + '">' + esc(d.text) + '</span></div>';
     }).join('');
 
     renderStrikerRow();
