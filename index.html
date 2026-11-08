@@ -22,8 +22,28 @@
 
   <header>
     <h1>Cricket Scoreboard</h1>
-    <button class="icon-btn" id="settingsBtn">⚙ Teams</button>
+    <div class="header-actions">
+      <button class="icon-btn" id="syncBtn"><span class="sync-dot"></span><span id="syncBtnText">Sync</span></button>
+      <button class="icon-btn" id="settingsBtn">⚙ Teams</button>
+    </div>
   </header>
+
+  <div class="panel" id="syncPanel">
+    <div class="sync-section" id="syncOff">
+      <button class="sync-start" data-action="sync-start">Start live sync</button>
+      <div class="player-add-row">
+        <input type="text" id="syncCodeInput" placeholder="Match code" maxlength="6"
+          autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false">
+        <button data-action="sync-join">Join</button>
+      </div>
+    </div>
+    <div class="sync-section" id="syncOn">
+      <div class="striker-label">Match code</div>
+      <div class="sync-code" id="syncCodeEl"></div>
+      <div class="sync-status" id="syncStatusEl"></div>
+      <button class="reset-link" data-action="sync-stop">Stop sync on this phone</button>
+    </div>
+  </div>
 
   <button class="extra-toggle" id="extraToggle" role="switch" aria-checked="false">
     <span class="extra-label">+1 run on Wide / No Ball</span>
@@ -363,8 +383,9 @@
   }
 
   function renderTeamsPanel(){
-    teamNameA.value = state.teams[0].name;
-    teamNameB.value = state.teams[1].name;
+    // Don't overwrite a name while it's being typed (a synced update could arrive mid-word)
+    if(document.activeElement !== teamNameA) teamNameA.value = state.teams[0].name;
+    if(document.activeElement !== teamNameB) teamNameB.value = state.teams[1].name;
 
     [ [playerListA, 0], [playerListB, 1] ].forEach(([container, idx]) => {
       container.innerHTML = state.teams[idx].players.map(p => `
@@ -475,7 +496,210 @@
       runsEl.classList.add('pulse');
       setTimeout(()=>runsEl.classList.remove('pulse'), 130);
     }
+
+    syncAfterRender();
   }
+
+  // --- Live sync ---------------------------------------------------------
+  // Phones share a match through a free public MQTT broker. Every change
+  // publishes the whole match as a "retained" message on a topic named after
+  // a 6-character match code, so a phone that joins (or rejoins after the app
+  // was closed) gets the latest score straight away. Each phone keeps the full
+  // match locally, so any phone can carry on scoring. Every state carries a
+  // revision number; the highest revision wins (ties: highest author id), so
+  // all phones settle on the same score. Armed No Ball / Run Out stay local.
+  const SYNC_URL = window.SYNC_URL_OVERRIDE || 'wss://broker.hivemq.com:8884/mqtt';
+  const MQTT_LIB = 'https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js';
+  const TOPIC_PREFIX = 'mgamer11-cricket-scoreboard/v1/';
+  const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
+  const sync = {
+    id: Math.random().toString(36).slice(2, 10),
+    code: null, client: null, status: 'off',
+    rev: 0, revBy: '', lastSnap: null,
+    awaiting: false, joining: false, awaitTimer: null, retryTimer: null
+  };
+  const syncBtn = el('syncBtn'), syncBtnText = el('syncBtnText'), syncPanel = el('syncPanel');
+  const syncOff = el('syncOff'), syncOn = el('syncOn');
+  const syncCodeEl = el('syncCodeEl'), syncStatusEl = el('syncStatusEl'), syncCodeInput = el('syncCodeInput');
+
+  function sharedState(){
+    return {
+      teams: state.teams, battingTeamIndex: state.battingTeamIndex, strikerId: state.strikerId,
+      runs: state.runs, wickets: state.wickets, overs: state.overs, ball: state.ball,
+      history: state.history, extraRunOn: state.extraRunOn,
+      target: state.target, prevSummary: state.prevSummary
+    };
+  }
+
+  // Called at the end of every render: if the match changed locally, bump the revision and send it.
+  function syncAfterRender(){
+    const snap = JSON.stringify(sharedState());
+    if(snap === sync.lastSnap) return;
+    sync.lastSnap = snap;
+    sync.rev += 1; sync.revBy = sync.id;
+    publishState();
+  }
+
+  function publishState(){
+    const c = sync.client;
+    if(!c || !c.connected || sync.awaiting || !sync.code) return;
+    try{
+      c.publish(TOPIC_PREFIX + sync.code,
+        JSON.stringify({ v:1, rev: sync.rev, by: sync.revBy, from: sync.id, state: sharedState() }),
+        { qos:1, retain:true });
+    }catch(e){ /* reconnect will reconcile */ }
+  }
+
+  function adoptRemote(msg){
+    const s = msg.state;
+    if(!s || !Array.isArray(s.teams) || s.teams.length !== 2 || !Array.isArray(s.history)) return;
+    Object.assign(state, {
+      teams: s.teams, battingTeamIndex: s.battingTeamIndex, strikerId: s.strikerId,
+      runs: s.runs, wickets: s.wickets, overs: s.overs, ball: s.ball,
+      history: s.history, extraRunOn: !!s.extraRunOn,
+      target: s.target, prevSummary: s.prevSummary
+    });
+    if(state.wickets >= 10){ state.noBallArmed = false; state.runOutArmed = false; }
+    let maxId = 0;
+    state.teams.forEach(t => t.players.forEach(p => { if(p.id > maxId) maxId = p.id; }));
+    playerSeed = Math.max(playerSeed, maxId + 1);
+    sync.rev = msg.rev; sync.revBy = msg.by;
+    sync.lastSnap = JSON.stringify(sharedState());
+    render(false);
+  }
+
+  function onRemote(msg){
+    if(!msg || msg.v !== 1 || typeof msg.rev !== 'number') return;
+    const wasAwaiting = sync.awaiting;
+    if(wasAwaiting){ sync.awaiting = false; clearTimeout(sync.awaitTimer); renderSync(); }
+    if(msg.from === sync.id){
+      // Our own message (echo, or the retained copy after a reconnect)
+      if(wasAwaiting && msg.rev < sync.rev) publishState();
+      return;
+    }
+    const newer = sync.joining || msg.rev > sync.rev || (msg.rev === sync.rev && msg.by > sync.revBy);
+    sync.joining = false;
+    if(newer){ adoptRemote(msg); setSyncStatus('live'); }
+    else if(msg.rev !== sync.rev || msg.by !== sync.revBy) publishState(); // ours is newer: send it back
+    else setSyncStatus('live');
+  }
+
+  function setSyncStatus(s){
+    sync.status = s;
+    renderSync();
+  }
+
+  function renderSync(){
+    const on = !!sync.code;
+    syncOff.style.display = on ? 'none' : '';
+    syncOn.style.display = on ? '' : 'none';
+    syncCodeEl.textContent = sync.code || '';
+    const live = on && sync.status === 'live' && !sync.awaiting;
+    syncStatusEl.textContent = !on ? '' :
+      sync.status === 'offline' ? 'Offline · will catch up when back' :
+      (sync.status === 'connecting' || sync.awaiting) ? (sync.joining ? 'Joining…' : 'Connecting…') : 'Live';
+    syncStatusEl.className = 'sync-status' + (live ? ' live' : sync.status === 'offline' ? ' offline' : '');
+    syncBtn.classList.toggle('live', live);
+    syncBtn.classList.toggle('pending', on && !live);
+  }
+
+  function saveSyncCode(code){
+    try{ if(code) localStorage.setItem('cs-sync-code', code); else localStorage.removeItem('cs-sync-code'); }catch(e){}
+  }
+
+  function loadMqtt(){
+    if(window.mqtt) return Promise.resolve(window.mqtt);
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = MQTT_LIB;
+      s.onload = () => window.mqtt ? resolve(window.mqtt) : reject(new Error('mqtt missing'));
+      s.onerror = () => { s.remove(); reject(new Error('mqtt load failed')); };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function connectSync(code, joining){
+    stopClient();
+    sync.code = code; sync.joining = joining;
+    saveSyncCode(code);
+    setSyncStatus('connecting');
+    let lib;
+    try{ lib = await loadMqtt(); }
+    catch(e){
+      if(sync.code !== code) return;
+      setSyncStatus('offline');
+      sync.retryTimer = setTimeout(() => { if(sync.code === code) connectSync(code, sync.joining); }, 5000);
+      return;
+    }
+    if(sync.code !== code || sync.client) return; // stopped or restarted meanwhile
+    const topic = TOPIC_PREFIX + code;
+    const client = lib.connect(SYNC_URL, {
+      clientId: 'cs_' + sync.id + '_' + Math.random().toString(36).slice(2, 6),
+      clean: true, keepalive: 20, reconnectPeriod: 2000, connectTimeout: 10000
+    });
+    sync.client = client;
+    client.on('connect', () => {
+      if(sync.client !== client) return;
+      // Wait for the server's latest copy before sending ours, so a phone
+      // that was offline never overwrites newer scores from another phone.
+      sync.awaiting = true;
+      setSyncStatus('live');
+      client.subscribe(topic, { qos:1 }, err => {
+        if(err || sync.client !== client) return;
+        clearTimeout(sync.awaitTimer);
+        sync.awaitTimer = setTimeout(() => {
+          if(sync.client !== client || !sync.awaiting) return;
+          sync.awaiting = false; sync.joining = false; // nothing stored under this code yet
+          publishState();
+          renderSync();
+        }, 2500);
+      });
+    });
+    client.on('message', (t, payload) => {
+      if(sync.client !== client || t !== topic) return;
+      let msg; try{ msg = JSON.parse(payload.toString()); }catch(e){ return; }
+      onRemote(msg);
+    });
+    client.on('reconnect', () => { if(sync.client === client) setSyncStatus('connecting'); });
+    client.on('offline', () => { if(sync.client === client) setSyncStatus('offline'); });
+    client.on('close', () => { if(sync.client === client && sync.status === 'live') setSyncStatus('offline'); });
+    client.on('error', () => {});
+  }
+
+  function stopClient(){
+    clearTimeout(sync.awaitTimer); clearTimeout(sync.retryTimer);
+    sync.awaiting = false;
+    if(sync.client){ try{ sync.client.end(true); }catch(e){} sync.client = null; }
+  }
+
+  function startSync(){
+    let code = '';
+    for(let i = 0; i < 6; i++) code += CODE_CHARS[Math.floor(Math.random() * CODE_CHARS.length)];
+    connectSync(code, false); // this phone's match is the starting point
+  }
+
+  function joinSync(){
+    const code = syncCodeInput.value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if(code.length !== 6){ syncCodeInput.focus(); return; }
+    syncCodeInput.value = '';
+    syncCodeInput.blur();
+    connectSync(code, true); // take whatever score the match code already has
+  }
+
+  function stopSync(){
+    if(!confirm('Stop syncing on this phone? The score stays here, and other phones keep the match.')) return;
+    stopClient();
+    sync.code = null; sync.joining = false;
+    saveSyncCode(null);
+    setSyncStatus('off');
+  }
+
+  // iOS suspends home screen apps in the background; reconnect straight away when it comes back.
+  document.addEventListener('visibilitychange', () => {
+    if(document.visibilityState === 'visible' && sync.client && !sync.client.connected){
+      try{ sync.client.reconnect(); }catch(e){}
+    }
+  });
 
   // --- Haptics ---------------------------------------------------------
   // iOS Safari has no official Vibration API. This exploits a real iOS 18+
@@ -510,10 +734,13 @@
   undoBtn.addEventListener('click', ()=>{ haptic(false); undo(); });
   el('newInningsBtn').addEventListener('click', ()=>{ haptic(true); startNewInnings(); });
 
-  settingsBtn.addEventListener('click', ()=>{
-    teamsPanel.classList.toggle('show');
-    settingsBtn.classList.toggle('open', teamsPanel.classList.contains('show'));
-  });
+  function togglePanel(panel, btn, other, otherBtn){
+    panel.classList.toggle('show');
+    btn.classList.toggle('open', panel.classList.contains('show'));
+    other.classList.remove('show'); otherBtn.classList.remove('open');
+  }
+  settingsBtn.addEventListener('click', ()=>{ togglePanel(teamsPanel, settingsBtn, syncPanel, syncBtn); });
+  syncBtn.addEventListener('click', ()=>{ togglePanel(syncPanel, syncBtn, teamsPanel, settingsBtn); });
 
   teamNameA.addEventListener('input', ()=>{ state.teams[0].name = teamNameA.value.trim() || 'Team A'; render(false); });
   teamNameB.addEventListener('input', ()=>{ state.teams[1].name = teamNameB.value.trim() || 'Team B'; render(false); });
@@ -527,12 +754,19 @@
     else if(action === 'set-batting') setBattingTeam(parseInt(t.dataset.team,10));
     else if(action === 'select-striker') selectStriker(parseInt(t.dataset.id,10));
     else if(action === 'reset-match') resetMatch();
+    else if(action === 'sync-start') startSync();
+    else if(action === 'sync-join') joinSync();
+    else if(action === 'sync-stop') stopSync();
   });
 
   el('addPlayerA').addEventListener('keydown', e=>{ if(e.key === 'Enter') addPlayer(0); });
   el('addPlayerB').addEventListener('keydown', e=>{ if(e.key === 'Enter') addPlayer(1); });
+  syncCodeInput.addEventListener('keydown', e=>{ if(e.key === 'Enter') joinSync(); });
 
   render(false);
+  renderSync();
+  // Rejoin the last match automatically if the app was closed while syncing
+  try{ const saved = localStorage.getItem('cs-sync-code'); if(saved) connectSync(saved, true); }catch(e){}
 </script>
 </body>
 </html>

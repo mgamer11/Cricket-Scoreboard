@@ -39,16 +39,38 @@
 
   header{ display:flex; align-items:center; justify-content:space-between; padding:2px 4px; }
   header h1{
-    font-size:13px; font-weight:800; letter-spacing:2.5px; text-transform:uppercase;
+    font-size:12px; font-weight:800; letter-spacing:1.6px; text-transform:uppercase;
     color:var(--muted); margin:0;
   }
   .icon-btn{
     background:none; border:1px solid var(--border); color:var(--muted);
     font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
-    padding:7px 12px; border-radius:20px; display:flex; align-items:center; gap:5px;
+    padding:7px 10px; border-radius:20px; display:flex; align-items:center; gap:5px;
   }
   .icon-btn:active{ background:var(--panel2); }
   .icon-btn.open{ color:var(--teal); border-color:var(--teal); }
+  .header-actions{ display:flex; gap:8px; flex:0 0 auto; }
+  header h1{ min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+  /* Live sync */
+  .sync-dot{ width:7px; height:7px; border-radius:50%; background:var(--muted); flex:0 0 auto; }
+  .icon-btn.live{ color:var(--teal); border-color:var(--teal); }
+  .icon-btn.live .sync-dot{ background:#5FD38A; box-shadow:0 0 6px #5FD38A; }
+  .icon-btn.pending .sync-dot{ background:var(--amber); animation:blink 1.4s ease-in-out infinite; }
+  .sync-section{ display:flex; flex-direction:column; gap:10px; }
+  .sync-start{
+    background:var(--teal-dim); border:1px solid var(--teal); color:var(--teal);
+    border-radius:10px; padding:11px; font-size:13px; font-weight:800; letter-spacing:1px; text-transform:uppercase;
+  }
+  #syncOff .player-add-row button{ font-size:13px; letter-spacing:1px; text-transform:uppercase; }
+  #syncCodeInput{ font-family:'JetBrains Mono',monospace; text-transform:uppercase; letter-spacing:3px; font-size:16px; }
+  .sync-code{
+    text-align:center; font-family:'JetBrains Mono',monospace; font-size:34px; font-weight:800;
+    letter-spacing:6px; color:var(--amber); -webkit-user-select:text; user-select:text;
+  }
+  .sync-status{ text-align:center; font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase; color:var(--muted); }
+  .sync-status.live{ color:#5FD38A; }
+  .sync-status.offline{ color:var(--red); }
 
   /* Teams settings panel */
   .panel{

@@ -17,6 +17,7 @@ A live, mobile-first cricket scoreboard built as a single-page web app. Installs
 - **Ball-by-ball ledger** — scrolling log of everything bowled this innings
 - **Teams & Players** — name two teams, add player rosters, and select who's on strike so runs get credited to individuals
 - **New Innings** — freezes the current score as the target and flips the batting team, with a live "runs needed to win" tracker
+- **Live sync between phones** — tap **Sync → Start live sync** on one phone to get a 6-character match code, then enter that code under **Sync** on another phone. Any phone can score and the others update within a second or so. The latest score is kept on the server, so if a phone dies another can join (or rejoin) and carry on. Avoid scoring the same ball on two phones at once: if two taps land at the same instant, one of them wins. Sync uses HiveMQ's free public MQTT broker (no account needed); anyone who knows a match code can see and change that match
 - **Installable** — works as a full-screen home screen app on both iOS (via "Add to Home Screen") and Android (via the native install prompt)
 
 ## Files
